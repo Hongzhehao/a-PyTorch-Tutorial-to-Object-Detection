@@ -1,4 +1,5 @@
 from torch import nn
+import torch
 from utils import *
 import torch.nn.functional as F
 from math import sqrt
@@ -71,7 +72,8 @@ class VGGBase(nn.Module):
         out = F.relu(self.conv4_1(out))  # (N, 512, 38, 38)
         out = F.relu(self.conv4_2(out))  # (N, 512, 38, 38)
         out = F.relu(self.conv4_3(out))  # (N, 512, 38, 38)
-        conv4_3_feats = out  # (N, 512, 38, 38)
+        conv4_3_feats = out
+        # g1 = out  # (N, 512, 38, 38)
         out = self.pool4(out)  # (N, 512, 19, 19)
 
         out = F.relu(self.conv5_1(out))  # (N, 512, 19, 19)
@@ -81,7 +83,9 @@ class VGGBase(nn.Module):
 
         out = F.relu(self.conv6(out))  # (N, 1024, 19, 19)
 
-        conv7_feats = F.relu(self.conv7(out))  # (N, 1024, 19, 19)
+        conv7_feats = F.relu(self.conv7(out))
+        # g2 = F.relu(self.conv7(out))  # (N, 1024, 19, 19)
+
 
         # Lower-level feature maps
         return conv4_3_feats, conv7_feats
@@ -215,17 +219,17 @@ class PredictionConvolutions(nn.Module):
         # 4 prior-boxes implies we use 4 different aspect ratios, etc.
 
         # Localization prediction convolutions (predict offsets w.r.t prior-boxes)
-        self.loc_conv4_3 = nn.Conv2d(512, n_boxes['conv4_3'] * 4, kernel_size=3, padding=1)
-        self.loc_conv7 = nn.Conv2d(1024, n_boxes['conv7'] * 4, kernel_size=3, padding=1)
-        self.loc_conv8_2 = nn.Conv2d(512, n_boxes['conv8_2'] * 4, kernel_size=3, padding=1)
+        self.loc_conv4_3 = nn.Conv2d(256, n_boxes['conv4_3'] * 4, kernel_size=3, padding=1)
+        self.loc_conv7 = nn.Conv2d(256, n_boxes['conv7'] * 4, kernel_size=3, padding=1)
+        self.loc_conv8_2 = nn.Conv2d(256, n_boxes['conv8_2'] * 4, kernel_size=3, padding=1)
         self.loc_conv9_2 = nn.Conv2d(256, n_boxes['conv9_2'] * 4, kernel_size=3, padding=1)
         self.loc_conv10_2 = nn.Conv2d(256, n_boxes['conv10_2'] * 4, kernel_size=3, padding=1)
         self.loc_conv11_2 = nn.Conv2d(256, n_boxes['conv11_2'] * 4, kernel_size=3, padding=1)
 
         # Class prediction convolutions (predict classes in localization boxes)
-        self.cl_conv4_3 = nn.Conv2d(512, n_boxes['conv4_3'] * n_classes, kernel_size=3, padding=1)
-        self.cl_conv7 = nn.Conv2d(1024, n_boxes['conv7'] * n_classes, kernel_size=3, padding=1)
-        self.cl_conv8_2 = nn.Conv2d(512, n_boxes['conv8_2'] * n_classes, kernel_size=3, padding=1)
+        self.cl_conv4_3 = nn.Conv2d(256, n_boxes['conv4_3'] * n_classes, kernel_size=3, padding=1)
+        self.cl_conv7 = nn.Conv2d(256, n_boxes['conv7'] * n_classes, kernel_size=3, padding=1)
+        self.cl_conv8_2 = nn.Conv2d(256, n_boxes['conv8_2'] * n_classes, kernel_size=3, padding=1)
         self.cl_conv9_2 = nn.Conv2d(256, n_boxes['conv9_2'] * n_classes, kernel_size=3, padding=1)
         self.cl_conv10_2 = nn.Conv2d(256, n_boxes['conv10_2'] * n_classes, kernel_size=3, padding=1)
         self.cl_conv11_2 = nn.Conv2d(256, n_boxes['conv11_2'] * n_classes, kernel_size=3, padding=1)
@@ -246,9 +250,9 @@ class PredictionConvolutions(nn.Module):
         """
         Forward propagation.
 
-        :param conv4_3_feats: conv4_3 feature map, a tensor of dimensions (N, 512, 38, 38)
-        :param conv7_feats: conv7 feature map, a tensor of dimensions (N, 1024, 19, 19)
-        :param conv8_2_feats: conv8_2 feature map, a tensor of dimensions (N, 512, 10, 10)
+        :param conv4_3_feats: conv4_3 feature map, a tensor of dimensions (N, 256, 38, 38)
+        :param conv7_feats: conv7 feature map, a tensor of dimensions (N, 256, 19, 19)
+        :param conv8_2_feats: conv8_2 feature map, a tensor of dimensions (N, 256, 10, 10)
         :param conv9_2_feats: conv9_2 feature map, a tensor of dimensions (N, 256, 5, 5)
         :param conv10_2_feats: conv10_2 feature map, a tensor of dimensions (N, 256, 3, 3)
         :param conv11_2_feats: conv11_2 feature map, a tensor of dimensions (N, 256, 1, 1)
@@ -320,6 +324,219 @@ class PredictionConvolutions(nn.Module):
         return locs, classes_scores
 
 
+class GtoCOneOneConV(nn.Module):
+    """
+                将主干网的6层特征进行1*1卷积处理 通道数到256
+    """
+    def __init__(self):
+        super(GtoCOneOneConV, self).__init__()
+        self.g1_c1_conv = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.g1_c2_conv = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.g1_c3_conv = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.g1_c4_conv = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.g1_c5_conv = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.g1_c6_conv = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+
+        self.init_conv2d()
+
+    def init_conv2d(self):
+        """
+        Initialize convolution parameters.
+        """
+        for c in self.children():
+            if isinstance(c, nn.Conv2d):
+                nn.init.xavier_uniform_(c.weight)
+                nn.init.constant_(c.bias, 0.)
+
+    def forward(self, g1, g2, g3, g4, g5, g6):
+        c1 = self.g1_c1_conv(g1)
+        c2 = self.g1_c2_conv(g2)
+        c3 = self.g1_c3_conv(g3)
+        c4 = self.g1_c4_conv(g4)
+        c5 = self.g1_c5_conv(g5)
+        c6 = self.g1_c6_conv(g6)
+
+        return c1, c2, c3, c4, c5, c6
+
+
+class ThreeFPN1(nn.Module):
+    """
+        为提取到的6层特征设计三个FPN支路.分别为 fpn1 , fpn2 , fpn3
+        此函数返回 fpn1 支路
+    """
+    def __init__(self):
+        super(ThreeFPN1, self).__init__()
+        # top-down branch 1st
+
+        # smooth平滑操作
+        self.smooth1_1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.smooth1_2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.smooth1_3 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.smooth1_4 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.smooth1_5 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+
+        self.init_conv2d()
+
+    # 双线性插值上采样
+    def _upsample_add(self, x, y):
+        _, _, H, W = y.size()
+        return F.upsample(x, size=(H, W), mode='bilinear') + y
+
+    def init_conv2d(self):
+        """
+        Initialize convolution parameters.
+        """
+        for c in self.children():
+            if isinstance(c, nn.Conv2d):
+                nn.init.xavier_uniform_(c.weight)
+                nn.init.constant_(c.bias, 0.)
+
+    def forward(self, c1, c2, c3, c4, c5, c6):
+        # first branch top-down
+        p1_6 = c6                                      # 1*1*256 (p1_6)
+        p1_5 = self._upsample_add(p1_6, c5)            # 3×3×256
+        p1_4 = self._upsample_add(p1_5, c4)            # 5*5*256
+        p1_3 = self._upsample_add(p1_4, c3)            # 10*10*256
+        p1_2 = self._upsample_add(p1_3, c2)            # 19*19*256
+        p1_1 = self._upsample_add(p1_2, c1)            # 38*38*256
+
+        p1_5 = self.smooth1_5(p1_5)  # 3*3 卷积平滑处理
+        p1_4 = self.smooth1_4(p1_4)
+        p1_3 = self.smooth1_3(p1_3)
+        p1_2 = self.smooth1_2(p1_2)
+        p1_1 = self.smooth1_1(p1_1)
+
+        return p1_1, p1_2, p1_3, p1_4, p1_5, p1_6
+
+
+class ThreeFPN2(nn.Module):
+    """
+            为提取到的6层特征设计三个FPN支路.分别为 fpn1 , fpn2 , fpn3
+            此函数返回 fpn2 支路
+    """
+
+    def __init__(self):
+        super(ThreeFPN2, self).__init__()
+        # f u branch 2st
+
+        # concat之后的卷积操作
+        self.p_34_conv = nn.Conv2d(512, 256, kernel_size=3, stride=1, padding=1)
+        self.p_12_conv = nn.Conv2d(512, 256, kernel_size=3, stride=1, padding=1)
+        # f - MAX POOLING
+        self.c2_c1tc2_maxp = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.c2_c12tc34_maxp = nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
+        # s - MAX POOLING
+        self.p34to4_maxp = nn.MaxPool2d(kernel_size=2, stride=2)
+        # 4层maxpooling到5、6层
+        self.p4to5_maxp = nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
+        self.p5to6_maxp = nn.MaxPool2d(kernel_size=2, stride=2)
+
+    # cat 操作
+    def _cat_op(self, x, y):
+        z = torch.cat((x, y), 1)
+        return z
+
+    # 单次线性插值 34层特征 --->  12层特征
+    def _upsample_alone(self, x, y):
+        _, _, H, W = y.size()
+        return F.upsample(x, size=(H, W), mode='bilinear')
+
+    # 双线性插值上采样
+    def _upsample_add(self, x, y):
+        _, _, H, W = y.size()
+        return F.upsample(x, size=(H, W), mode='bilinear') + y
+
+    def init_conv2d(self):
+        """
+        Initialize convolution parameters.
+        """
+        for c in self.children():
+            if isinstance(c, nn.Conv2d):
+                nn.init.xavier_uniform_(c.weight)
+                nn.init.constant_(c.bias, 0.)
+
+    def forward(self, c1, c2, c3, c4, c5, c6):
+        c5_proc = self._upsample_add(c6, c5)
+        c4_proc = self._upsample_add(c5_proc, c4)    # 待用的第四层特征  5*5*256
+
+        f_p_34 = self._upsample_add(c4_proc, c3)     # 一次融合，3，4层特征 10*10*256
+        f_p_12 = self.c2_c1tc2_maxp(c1) + c2         # 二次融合，1，2层特征 19*19*256
+
+        # 一次交换 12层特征maxp之后与34层特征cat
+        ex_p_12to34 = self._cat_op(self.c2_c12tc34_maxp(f_p_12), f_p_34)    # (10*10*512)
+        # 二次交换 34层特征upsample之后与12层特征cat
+        ex_p_34to12 = self._cat_op(f_p_12, self._upsample_alone(f_p_34, f_p_12))    # (19*19*512)
+
+        s_p_12 = self.p_12_conv(ex_p_34to12)        # 交换特征之后的3*3卷积 -- 低层 输出 19*19*256
+        s_p_34 = self.p_34_conv(ex_p_12to34)        # 交换特征之后的3*3卷积 -- 高层 输出 10*10*256
+
+        p3_1 = self._upsample_alone(s_p_12, c1)     # 分裂操作  no.1   (38*38*256)
+        p3_2 = s_p_12                               # no.2     (19*19*256)
+        p3_3 = s_p_34                               # no.3     (10*10*256)
+        p3_4 = self.p34to4_maxp(s_p_34)             # no.4     (5*5*256)
+        p3_5 = self.p4to5_maxp(p3_4)                # no.5     (3*3*256)
+        p3_6 = self.p5to6_maxp(p3_5)                # no.6     (1*1*256)
+
+        return p3_1, p3_2, p3_3, p3_4, p3_5, p3_6
+
+
+class ThreeFPN3(nn.Module):
+    """
+            为提取到的6层特征设计三个FPN支路.分别为 fpn1 , fpn2 , fpn3
+            此函数返回 fpn3 支路
+    """
+
+    def __init__(self):
+        super(ThreeFPN3, self).__init__()
+        # bottom-up branch 3st
+
+        # P1 TO P6 MAXPool
+        self.p1_p2_maxp = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.p2_p3_maxp = nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
+        self.p3_p4_maxp = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.p4_p5_maxp = nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
+        self.p5_p6_maxp = nn.MaxPool2d(kernel_size=2, stride=2)
+        # smooth平滑操作
+        self.smooth3_1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.smooth3_2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.smooth3_3 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.smooth3_4 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.smooth3_5 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+
+        self.init_conv2d()
+
+    # 双线性插值上采样
+    def _upsample_add(self, x, y):
+        _, _, H, W = y.size()
+        return F.upsample(x, size=(H, W), mode='bilinear') + y
+
+    def init_conv2d(self):
+        """
+        Initialize convolution parameters.
+        """
+        for c in self.children():
+            if isinstance(c, nn.Conv2d):
+                nn.init.xavier_uniform_(c.weight)
+                nn.init.constant_(c.bias, 0.)
+
+    def forward(self, c1, c2, c3, c4, c5, c6):
+        p3_1 = self._upsample_add(c2, c1)
+        p3_2 = self._upsample_add(c3, (c2 + self.p1_p2_maxp(p3_1)))
+        p3_3 = self._upsample_add(c4, (c3 + self.p2_p3_maxp(p3_2)))
+        p3_4 = self._upsample_add(c5, (c4 + self.p3_p4_maxp(p3_3)))
+        p3_5 = self._upsample_add(c6, (c5 + self.p4_p5_maxp(p3_4)))
+        p3_6 = self.p5_p6_maxp(p3_5) + c6
+
+        # 3*3 平滑处理
+        p3_1 = self.smooth3_1(p3_1)
+        p3_2 = self.smooth3_2(p3_2)
+        p3_3 = self.smooth3_3(p3_3)
+        p3_4 = self.smooth3_4(p3_4)
+        p3_5 = self.smooth3_5(p3_5)
+
+        return p3_1, p3_2, p3_3, p3_4, p3_5, p3_6
+
+
 class SSD300(nn.Module):
     """
     The SSD300 network - encapsulates the base VGG network, auxiliary, and prediction convolutions.
@@ -332,12 +549,19 @@ class SSD300(nn.Module):
 
         self.base = VGGBase()
         self.aux_convs = AuxiliaryConvolutions()
+
+        self.soomth_process = GtoCOneOneConV()
+        self.fpn1 = ThreeFPN1()
+        self.fpn2 = ThreeFPN2()
+        self.fpn3 = ThreeFPN3()
+
         self.pred_convs = PredictionConvolutions(n_classes)
 
         # Since lower level features (conv4_3_feats) have considerably larger scales, we take the L2 norm and rescale
         # Rescale factor is initially set at 20, but is learned for each channel during back-prop
-        self.rescale_factors = nn.Parameter(torch.FloatTensor(1, 512, 1, 1))  # there are 512 channels in conv4_3_feats
-        nn.init.constant_(self.rescale_factors, 20)
+        # self.rescale_factors = nn.Parameter(torch.FloatTensor(1, 512, 1, 1))
+        # there are 512 channels in conv4_3_feats
+        # nn.init.constant_(self.rescale_factors, 20)
 
         # Prior boxes
         self.priors_cxcy = self.create_prior_boxes()
@@ -350,17 +574,28 @@ class SSD300(nn.Module):
         :return: 8732 locations and class scores (i.e. w.r.t each prior box) for each image
         """
         # Run VGG base network convolutions (lower level feature map generators)
-        conv4_3_feats, conv7_feats = self.base(image)  # (N, 512, 38, 38), (N, 1024, 19, 19)
+        g1, g2 = self.base(image)  # (N, 512, 38, 38), (N, 1024, 19, 19)
 
         # Rescale conv4_3 after L2 norm
-        norm = conv4_3_feats.pow(2).sum(dim=1, keepdim=True).sqrt()  # (N, 1, 38, 38)
-        conv4_3_feats = conv4_3_feats / norm  # (N, 512, 38, 38)
-        conv4_3_feats = conv4_3_feats * self.rescale_factors  # (N, 512, 38, 38)
+        # norm = g1.pow(2).sum(dim=1, keepdim=True).sqrt()  # (N, 1, 38, 38)
+        # g1 = g1 / norm  # (N, 512, 38, 38)
+        # g1 = g1 * self.rescale_factors  # (N, 512, 38, 38)
         # (PyTorch autobroadcasts singleton dimensions during arithmetic)
 
         # Run auxiliary convolutions (higher level feature map generators)
-        conv8_2_feats, conv9_2_feats, conv10_2_feats, conv11_2_feats = \
-            self.aux_convs(conv7_feats)  # (N, 512, 10, 10),  (N, 256, 5, 5), (N, 256, 3, 3), (N, 256, 1, 1)
+        g3, g4, g5, g6 = self.aux_convs(g2)  # (N, 512, 10, 10),  (N, 256, 5, 5), (N, 256, 3, 3), (N, 256, 1, 1)
+
+        c1, c2, c3, c4, c5, c6 = self.soomth_process(g1, g2, g3, g4, g5, g6)    # 经过1*1卷积处理到256维度
+        p1_1, p1_2, p1_3, p1_4, p1_5, p1_6 = self.fpn1(c1, c2, c3, c4, c5, c6)
+        p2_1, p2_2, p2_3, p2_4, p2_5, p2_6 = self.fpn2(c1, c2, c3, c4, c5, c6)
+        p3_1, p3_2, p3_3, p3_4, p3_5, p3_6 = self.fpn3(c1, c2, c3, c4, c5, c6)
+
+        conv4_3_feats = p1_1 + p2_1 + p3_1
+        conv7_feats = p1_2 + p2_2 + p3_2
+        conv8_2_feats = p1_3 + p2_3 + p3_3
+        conv9_2_feats = p1_4 + p2_4 + p3_4
+        conv10_2_feats = p1_5 + p2_5 + p3_5
+        conv11_2_feats = p1_6 + p2_6 + p3_6
 
         # Run prediction convolutions (predict offsets w.r.t prior-boxes and classes in each resulting localization box)
         locs, classes_scores = self.pred_convs(conv4_3_feats, conv7_feats, conv8_2_feats, conv9_2_feats, conv10_2_feats,
